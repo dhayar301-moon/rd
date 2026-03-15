@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Admin – Bus Attendance</title>
+  <link rel="stylesheet" href="css/style.css"/>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="brand">🚌 Bus Attendance</div>
+  <nav>
+    <a href="dashboard.html">Dashboard</a>
+    <a href="scanner.html">Scanner</a>
+    <a href="admin.html" class="active">Admin</a>
+    <a href="#" id="logout-btn">Logout</a>
+  </nav>
+</nav>
+
+<div class="container">
+  <div class="page-title">⚙️ Admin Panel</div>
+
+  <!-- Tabs -->
+  <div class="route-tabs" style="margin-bottom:24px;">
+    <button class="route-tab active" onclick="showTab('students')">👥 Students</button>
+    <button class="route-tab" onclick="showTab('add')">➕ Add Student</button>
+    <button class="route-tab" onclick="showTab('qrcodes')">🔲 QR Codes</button>
+  </div>
+
+  <!-- ── Students List Tab ── -->
+  <div id="tab-students">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <div class="card-title" style="margin:0;">All Students</div>
+        <input type="text" id="stu-search" class="form-control" placeholder="🔍 Search..." style="width:200px;" oninput="filterStudents()"/>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>ID</th><th>Name</th><th>Dept</th><th>Route</th><th>Bus</th><th>QR Code</th><th>Action</th></tr></thead>
+          <tbody id="students-tbody"></tbody>
+        </table>
+      </div>
+      <div id="stu-no-data" style="text-align:center;padding:30px;color:var(--muted);display:none;">No students found.</div>
+    </div>
+  </div>
+
+  <!-- ── Add Student Tab ── -->
+  <div id="tab-add" style="display:none;">
+    <div class="card" style="max-width:560px;">
+      <div class="card-title">Add New Student</div>
+      <div id="add-alert"></div>
+      <form id="add-form">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Full Name</label>
+            <input type="text" id="s-name" class="form-control" placeholder="e.g. Ravi Kumar" required/>
+          </div>
+          <div class="form-group">
+            <label>Department</label>
+            <input type="text" id="s-dept" class="form-control" placeholder="e.g. CSE" required/>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Route Number</label>
+            <input type="number" id="s-route" class="form-control" placeholder="e.g. 1" min="1" required/>
+          </div>
+          <div class="form-group">
+            <label>Bus Number</label>
+            <input type="number" id="s-bus" class="form-control" placeholder="e.g. 2" min="1" required/>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>QR Code Value (Unique Student ID)</label>
+          <div style="display:flex;gap:8px;">
+            <input type="text" id="s-qr" class="form-control" placeholder="e.g. STU011" required/>
+            <button type="button" class="btn btn-outline" onclick="generateQRId()">Auto</button>
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary">➕ Add Student</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ── QR Codes Tab ── -->
+  <div id="tab-qrcodes" style="display:none;">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+        <div class="card-title" style="margin:0;">Student QR Codes</div>
+        <button class="btn btn-primary" onclick="printQRCodes()">🖨️ Print All</button>
+      </div>
+      <div class="qr-grid" id="qr-grid"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Print styles -->
+<style>
+  @media print {
+    .navbar, .route-tabs, #tab-students, #tab-add { display: none !important; }
+    #tab-qrcodes { display: block !important; }
+    .card { box-shadow: none; }
+    .btn { display: none; }
+  }
+</style>
+
+<script>
+  let allStudents = [];
+
+  fetch('/api/me').then(r => r.json()).then(d => {
+    if (!d.loggedIn) window.location.href = 'index.html';
+  });
+
+  document.getElementById('logout-btn').addEventListener('click', async () => {
+    await fetch('/api/logout', { method: 'POST' });
+    window.location.href = 'index.html';
+  });
+
+  function showTab(tab) {
+    ['students','add','qrcodes'].forEach(t => {
+      document.getElementById(`tab-${t}`).style.display = t === tab ? 'block' : 'none';
+    });
+    document.querySelectorAll('.route-tab').forEach((btn, i) => {
+      btn.classList.toggle('active', ['students','add','qrcodes'][i] === tab);
+    });
+    if (tab === 'qrcodes') renderQRCodes();
+  }
+
+  async function loadStudents() {
+    const res = await fetch('/api/students');
+    allStudents = await res.json();
+    renderStudentsTable(allStudents);
+  }
+
+  function renderStudentsTable(students) {
+    const tbody = document.getElementById('students-tbody');
+    const noData = document.getElementById('stu-no-data');
+    if (!students.length) { tbody.innerHTML = ''; noData.style.display = 'block'; return; }
+    noData.style.display = 'none';
+    tbody.innerHTML = students.map(s => `
+      <tr>
+        <td>${s.id}</td>
+        <td><strong>${s.name}</strong></td>
+        <td>${s.department}</td>
+        <td><span class="badge badge-blue">Route ${s.route_number}</span></td>
+        <td><span class="badge badge-green">Bus ${s.bus_number}</span></td>
+        <td><code style="font-size:0.8rem;background:var(--bg);padding:2px 6px;border-radius:4px;">${s.qr_code_value}</code></td>
+        <td>
+          <button class="btn btn-danger btn-sm" onclick="deleteStudent(${s.id}, '${s.name}')">🗑 Delete</button>
+        </td>
+      </tr>`).join('');
+  }
+
+  function filterStudents() {
+    const q = document.getElementById('stu-search').value.toLowerCase();
+    renderStudentsTable(allStudents.filter(s =>
+      s.name.toLowerCase().includes(q) ||
+      s.department.toLowerCase().includes(q) ||
+      s.qr_code_value.toLowerCase().includes(q)
+    ));
+  }
+
+  async function deleteStudent(id, name) {
+    if (!confirm(`Delete student "${name}"? This will also remove their attendance records.`)) return;
+    await fetch(`/api/students/${id}`, { method: 'DELETE' });
+    loadStudents();
+  }
+
+  document.getElementById('add-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const body = {
+      name: document.getElementById('s-name').value,
+      department: document.getElementById('s-dept').value,
+      route_number: document.getElementById('s-route').value,
+      bus_number: document.getElementById('s-bus').value,
+      qr_code_value: document.getElementById('s-qr').value
+    };
+    const alertBox = document.getElementById('add-alert');
+    try {
+      const res = await fetch('/api/students', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alertBox.innerHTML = `<div class="alert alert-success">✅ Student added successfully!</div>`;
+        document.getElementById('add-form').reset();
+        loadStudents();
+        setTimeout(() => alertBox.innerHTML = '', 3000);
+      } else {
+        alertBox.innerHTML = `<div class="alert alert-error">❌ ${data.error}</div>`;
+      }
+    } catch {
+      alertBox.innerHTML = `<div class="alert alert-error">❌ Server error.</div>`;
+    }
+  });
+
+  function generateQRId() {
+    const id = 'STU' + String(Date.now()).slice(-5);
+    document.getElementById('s-qr').value = id;
+  }
+
+  function renderQRCodes() {
+    const grid = document.getElementById('qr-grid');
+    grid.innerHTML = '';
+    allStudents.forEach(s => {
+      const div = document.createElement('div');
+      div.className = 'qr-item';
+      div.innerHTML = `
+        <canvas id="qr-${s.id}"></canvas>
+        <div class="qr-name">${s.name}</div>
+        <div class="qr-id">${s.qr_code_value}</div>
+        <div class="qr-id" style="margin-top:2px;">Route ${s.route_number} · Bus ${s.bus_number}</div>
+      `;
+      grid.appendChild(div);
+      QRCode.toCanvas(document.getElementById(`qr-${s.id}`), s.qr_code_value, { width: 130, margin: 1 });
+    });
+  }
+
+  function printQRCodes() {
+    showTab('qrcodes');
+    setTimeout(() => window.print(), 300);
+  }
+
+  loadStudents();
+</script>
+</body>
+</html>

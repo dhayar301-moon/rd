@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Dashboard – Bus Attendance</title>
+  <link rel="stylesheet" href="css/style.css"/>
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="brand">🚌 Bus Attendance</div>
+  <nav>
+    <a href="dashboard.html" class="active">Dashboard</a>
+    <a href="scanner.html">Scanner</a>
+    <a href="admin.html">Admin</a>
+    <a href="#" id="logout-btn">Logout</a>
+  </nav>
+</nav>
+
+<div class="container">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px;">
+    <div class="page-title" style="margin:0;">📊 Route Dashboard</div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      <input type="date" id="date-filter" class="form-control" style="width:auto;"/>
+      <button class="btn btn-primary" onclick="loadDashboard()">🔍 Filter</button>
+      <button class="btn btn-success" onclick="exportExcel()">⬇ Export Excel</button>
+      <button class="btn btn-outline" onclick="loadDashboard()" title="Refresh">🔄 Refresh</button>
+    </div>
+  </div>
+
+  <!-- Summary Stats -->
+  <div class="stats-grid" id="summary-stats"></div>
+
+  <!-- Route Tabs -->
+  <div class="route-tabs" id="route-tabs"></div>
+
+  <!-- Bus Cards for selected route -->
+  <div class="bus-cards" id="bus-cards"></div>
+
+  <!-- Student List -->
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <div class="card-title" style="margin:0;" id="list-title">Student List</div>
+      <input type="text" id="search-input" class="form-control" placeholder="🔍 Search student..." style="width:220px;" oninput="filterTable()"/>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>#</th><th>Name</th><th>Dept</th><th>Route</th><th>Bus</th><th>Time</th><th>Location</th></tr>
+        </thead>
+        <tbody id="student-tbody"></tbody>
+      </table>
+    </div>
+    <div id="no-data" style="text-align:center;padding:30px;color:var(--muted);display:none;">
+      No attendance records found for this date.
+    </div>
+  </div>
+</div>
+
+<script>
+  let allRows = [];
+  let activeRoute = 'all';
+  let dashboardData = {};
+
+  // Auth check
+  fetch('/api/me').then(r => r.json()).then(d => {
+    if (!d.loggedIn) window.location.href = 'index.html';
+  });
+
+  document.getElementById('logout-btn').addEventListener('click', async () => {
+    await fetch('/api/logout', { method: 'POST' });
+    window.location.href = 'index.html';
+  });
+
+  // Set today's date as default
+  document.getElementById('date-filter').value = new Date().toISOString().split('T')[0];
+
+  async function loadDashboard() {
+    const date = document.getElementById('date-filter').value;
+
+    const [dashRes, attRes] = await Promise.all([
+      fetch(`/api/dashboard?date=${date}`),
+      fetch(`/api/attendance?date=${date}`)
+    ]);
+    dashboardData = await dashRes.json();
+    allRows = await attRes.json();
+
+    renderSummary(dashboardData);
+    renderRouteTabs(dashboardData);
+    renderBusCards('all', dashboardData);
+    renderTable(allRows);
+  }
+
+  function renderSummary(data) {
+    const routes = data.routes.length;
+    const buses  = data.summary.length;
+    document.getElementById('summary-stats').innerHTML = `
+      <div class="stat-card">
+        <div class="num">${data.totalToday}</div>
+        <div class="label">Total Students Today</div>
+      </div>
+      <div class="stat-card green">
+        <div class="num">${routes}</div>
+        <div class="label">Active Routes</div>
+      </div>
+      <div class="stat-card orange">
+        <div class="num">${buses}</div>
+        <div class="label">Buses with Students</div>
+      </div>
+    `;
+  }
+
+  function renderRouteTabs(data) {
+    const tabs = document.getElementById('route-tabs');
+    const routes = [...new Set(data.summary.map(s => s.route_number))].sort((a,b) => a-b);
+
+    tabs.innerHTML = `<button class="route-tab ${activeRoute === 'all' ? 'active' : ''}" onclick="selectRoute('all')">All Routes</button>`;
+    routes.forEach(r => {
+      const total = data.routes.find(x => x.route_number === r)?.total || 0;
+      tabs.innerHTML += `<button class="route-tab ${activeRoute == r ? 'active' : ''}" onclick="selectRoute(${r})">
+        Route ${r} <span class="badge badge-blue" style="margin-left:4px;">${total}</span>
+      </button>`;
+    });
+  }
+
+  function selectRoute(route) {
+    activeRoute = route;
+    renderRouteTabs(dashboardData);
+    renderBusCards(route, dashboardData);
+
+    const filtered = route === 'all' ? allRows : allRows.filter(r => r.route_number == route);
+    renderTable(filtered);
+    document.getElementById('list-title').textContent =
+      route === 'all' ? 'All Students' : `Route ${route} – Students`;
+  }
+
+  function renderBusCards(route, data) {
+    const buses = route === 'all' ? data.summary : data.summary.filter(s => s.route_number == route);
+    const container = document.getElementById('bus-cards');
+
+    if (!buses.length) { container.innerHTML = ''; return; }
+
+    container.innerHTML = buses.map(b => `
+      <div class="bus-card" onclick="selectBus(${b.route_number}, ${b.bus_number})">
+        <h3>Route ${b.route_number} – Bus ${b.bus_number}</h3>
+        <div class="count">${b.count}</div>
+        <div class="sub">students boarded</div>
+      </div>
+    `).join('');
+  }
+
+  function selectBus(route, bus) {
+    const filtered = allRows.filter(r => r.route_number == route && r.bus_number == bus);
+    renderTable(filtered);
+    document.getElementById('list-title').textContent = `Route ${route} – Bus ${bus} Students`;
+  }
+
+  function renderTable(rows) {
+    const tbody = document.getElementById('student-tbody');
+    const noData = document.getElementById('no-data');
+
+    if (!rows.length) {
+      tbody.innerHTML = '';
+      noData.style.display = 'block';
+      return;
+    }
+    noData.style.display = 'none';
+    tbody.innerHTML = rows.map((r, i) => `
+      <tr>
+        <td>${i + 1}</td>
+        <td><strong>${r.name}</strong></td>
+        <td>${r.department}</td>
+        <td><span class="badge badge-blue">Route ${r.route_number}</span></td>
+        <td><span class="badge badge-green">Bus ${r.bus_number}</span></td>
+        <td>${r.time}</td>
+        <td style="font-size:0.8rem;color:var(--muted)">${r.location || '—'}</td>
+      </tr>`).join('');
+  }
+
+  function filterTable() {
+    const q = document.getElementById('search-input').value.toLowerCase();
+    const source = activeRoute === 'all' ? allRows : allRows.filter(r => r.route_number == activeRoute);
+    const filtered = source.filter(r =>
+      r.name.toLowerCase().includes(q) ||
+      r.department.toLowerCase().includes(q)
+    );
+    renderTable(filtered);
+  }
+
+  function exportExcel() {
+    const date = document.getElementById('date-filter').value;
+    window.location.href = `/api/export?date=${date}`;
+  }
+
+  loadDashboard();
+  // Auto-refresh every 30 seconds
+  setInterval(loadDashboard, 30000);
+</script>
+</body>
+</html>

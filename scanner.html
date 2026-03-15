@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>QR Scanner – Bus Attendance</title>
+  <link rel="stylesheet" href="css/style.css"/>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="brand">🚌 Bus Attendance</div>
+  <nav>
+    <a href="dashboard.html">Dashboard</a>
+    <a href="scanner.html" class="active">Scanner</a>
+    <a href="admin.html">Admin</a>
+    <a href="#" id="logout-btn">Logout</a>
+  </nav>
+</nav>
+
+<div class="container">
+  <div class="page-title">📷 QR Code Scanner</div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start;">
+
+    <!-- Scanner -->
+    <div class="card">
+      <div class="card-title">Scan Student ID Card</div>
+      <div id="qr-reader"></div>
+      <div style="margin-top:12px;display:flex;gap:8px;">
+        <button id="start-btn" class="btn btn-primary" onclick="startScanner()">▶ Start Camera</button>
+        <button id="stop-btn"  class="btn btn-outline"  onclick="stopScanner()" style="display:none;">⏹ Stop</button>
+      </div>
+      <p style="font-size:0.8rem;color:var(--muted);margin-top:10px;">
+        Point the camera at the QR code on the student ID card.
+      </p>
+    </div>
+
+    <!-- Result Panel -->
+    <div>
+      <div id="alert-box"></div>
+
+      <!-- Today's count -->
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-title">Today's Scan Count</div>
+        <div style="font-size:2.5rem;font-weight:700;color:var(--primary)" id="today-count">–</div>
+        <div style="font-size:0.85rem;color:var(--muted)" id="today-date"></div>
+      </div>
+
+      <!-- Student result card -->
+      <div class="card scan-result" id="result-card">
+        <div id="result-status"></div>
+        <div class="student-info" id="student-info"></div>
+      </div>
+
+      <!-- Recent scans -->
+      <div class="card">
+        <div class="card-title">Recent Scans</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Name</th><th>Route</th><th>Bus</th><th>Time</th></tr></thead>
+            <tbody id="recent-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  let scanner = null;
+  let scanning = false;
+  let lastScanned = '';
+  let cooldown = false;
+
+  // Auth check
+  fetch('/api/me').then(r => r.json()).then(d => {
+    if (!d.loggedIn) window.location.href = 'index.html';
+  });
+
+  document.getElementById('logout-btn').addEventListener('click', async () => {
+    await fetch('/api/logout', { method: 'POST' });
+    window.location.href = 'index.html';
+  });
+
+  function startScanner() {
+    if (scanning) return;
+    scanner = new Html5Qrcode('qr-reader');
+    scanner.start(
+      { facingMode: 'environment' },
+      { fps: 10, qrbox: { width: 250, height: 250 } },
+      onScanSuccess,
+      () => {}
+    ).then(() => {
+      scanning = true;
+      document.getElementById('start-btn').style.display = 'none';
+      document.getElementById('stop-btn').style.display = 'inline-flex';
+    }).catch(err => showAlert('error', '❌ Camera error: ' + err));
+  }
+
+  function stopScanner() {
+    if (scanner && scanning) {
+      scanner.stop().then(() => {
+        scanning = false;
+        document.getElementById('start-btn').style.display = 'inline-flex';
+        document.getElementById('stop-btn').style.display = 'none';
+      });
+    }
+  }
+
+  async function onScanSuccess(qrValue) {
+    if (cooldown || qrValue === lastScanned) return;
+    cooldown = true;
+    lastScanned = qrValue;
+    setTimeout(() => { cooldown = false; lastScanned = ''; }, 3000);
+
+    // Get GPS location
+    let location = null;
+    if (navigator.geolocation) {
+      await new Promise(resolve => {
+        navigator.geolocation.getCurrentPosition(
+          pos => { location = `${pos.coords.latitude.toFixed(5)},${pos.coords.longitude.toFixed(5)}`; resolve(); },
+          () => resolve(), { timeout: 3000 }
+        );
+      });
+    }
+
+    try {
+      const res = await fetch('/api/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ qr_code_value: qrValue, location })
+      });
+      const data = await res.json();
+
+      const resultCard = document.getElementById('result-card');
+      resultCard.classList.add('show');
+
+      if (res.ok) {
+        showAlert('success', `✅ Attendance marked for <strong>${data.student.name}</strong>`);
+        resultCard.style.background = '#e6f4ea';
+        document.getElementById('result-status').innerHTML =
+          `<div style="font-size:1.1rem;font-weight:700;color:var(--success)">✅ Attendance Marked!</div>
+           <div style="font-size:0.8rem;color:var(--muted)">${data.date} at ${data.time}</div>`;
+        showStudentInfo(data.student);
+        loadTodayCount();
+        loadRecentScans();
+      } else if (res.status === 409) {
+        showAlert('info', `ℹ️ Already marked today for <strong>${data.student.name}</strong>`);
+        resultCard.style.background = '#e8f0fe';
+        document.getElementById('result-status').innerHTML =
+          `<div style="font-size:1.1rem;font-weight:700;color:var(--primary)">ℹ️ Already Marked Today</div>`;
+        showStudentInfo(data.student);
+      } else {
+        showAlert('error', `❌ ${data.error}`);
+        resultCard.classList.remove('show');
+      }
+    } catch {
+      showAlert('error', '❌ Server error. Please try again.');
+    }
+  }
+
+  function showStudentInfo(s) {
+    document.getElementById('student-info').innerHTML = `
+      <div class="info-item"><div class="key">Student ID</div><div class="val">${s.qr_code_value}</div></div>
+      <div class="info-item"><div class="key">Name</div><div class="val">${s.name}</div></div>
+      <div class="info-item"><div class="key">Department</div><div class="val">${s.department}</div></div>
+      <div class="info-item"><div class="key">Route</div><div class="val">Route ${s.route_number}</div></div>
+      <div class="info-item"><div class="key">Bus Number</div><div class="val">Bus ${s.bus_number}</div></div>
+    `;
+  }
+
+  function showAlert(type, msg) {
+    const box = document.getElementById('alert-box');
+    box.innerHTML = `<div class="alert alert-${type === 'error' ? 'error' : type === 'info' ? 'info' : 'success'}">${msg}</div>`;
+    setTimeout(() => box.innerHTML = '', 4000);
+  }
+
+  async function loadTodayCount() {
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('today-date').textContent = today;
+    const res = await fetch(`/api/dashboard?date=${today}`);
+    const data = await res.json();
+    document.getElementById('today-count').textContent = data.totalToday;
+  }
+
+  async function loadRecentScans() {
+    const today = new Date().toISOString().split('T')[0];
+    const res = await fetch(`/api/attendance?date=${today}`);
+    const rows = await res.json();
+    const tbody = document.getElementById('recent-tbody');
+    tbody.innerHTML = rows.slice(-5).reverse().map(r => `
+      <tr>
+        <td>${r.name}</td>
+        <td><span class="badge badge-blue">R${r.route_number}</span></td>
+        <td><span class="badge badge-green">B${r.bus_number}</span></td>
+        <td>${r.time}</td>
+      </tr>`).join('');
+  }
+
+  loadTodayCount();
+  loadRecentScans();
+</script>
+</body>
+</html>
