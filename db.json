@@ -1,0 +1,110 @@
+{
+  "admins": [
+    {
+      "id": 1,
+      "username": "admin",
+      "password": "admin123"
+    }
+  ],
+  "students": [
+    {
+      "id": 1,
+      "name": "Aarav Kumar",
+      "department": "CSE",
+      "route_number": 1,
+      "bus_number": 1,
+      "qr_code_value": "STU001"
+    },
+    {
+      "id": 2,
+      "name": "Priya Sharma",
+      "department": "ECE",
+      "route_number": 1,
+      "bus_number": 1,
+      "qr_code_value": "STU002"
+    },
+    {
+      "id": 3,
+      "name": "Rahul Verma",
+      "department": "MECH",
+      "route_number": 1,
+      "bus_number": 2,
+      "qr_code_value": "STU003"
+    },
+    {
+      "id": 4,
+      "name": "Sneha Patel",
+      "department": "CSE",
+      "route_number": 1,
+      "bus_number": 2,
+      "qr_code_value": "STU004"
+    },
+    {
+      "id": 5,
+      "name": "Arjun Singh",
+      "department": "IT",
+      "route_number": 2,
+      "bus_number": 1,
+      "qr_code_value": "STU005"
+    },
+    {
+      "id": 6,
+      "name": "Divya Nair",
+      "department": "ECE",
+      "route_number": 2,
+      "bus_number": 1,
+      "qr_code_value": "STU006"
+    },
+    {
+      "id": 7,
+      "name": "Karan Mehta",
+      "department": "CIVIL",
+      "route_number": 2,
+      "bus_number": 2,
+      "qr_code_value": "STU007"
+    },
+    {
+      "id": 8,
+      "name": "Ananya Reddy",
+      "department": "CSE",
+      "route_number": 2,
+      "bus_number": 2,
+      "qr_code_value": "STU008"
+    },
+    {
+      "id": 9,
+      "name": "Vikram Joshi",
+      "department": "MECH",
+      "route_number": 3,
+      "bus_number": 1,
+      "qr_code_value": "STU009"
+    },
+    {
+      "id": 10,
+      "name": "Pooja Iyer",
+      "department": "IT",
+      "route_number": 3,
+      "bus_number": 1,
+      "qr_code_value": "STU010"
+    },
+    {
+      "id": 11,
+      "name": "tiru",
+      "department": "ece",
+      "route_number": 13,
+      "bus_number": 12,
+      "qr_code_value": "2117240040170"
+    }
+  ],
+  "attendance": [
+    {
+      "id": 1,
+      "student_id": 11,
+      "route_number": 13,
+      "bus_number": 12,
+      "date": "2026-03-15",
+      "time": "01:58:51",
+      "location": null
+    }
+  ]
+}
